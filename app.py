@@ -1,130 +1,328 @@
 import io
+from urllib.parse import urlparse
+
+import cv2
+import numpy as np
 import requests
 import streamlit as st
-from PIL import Image, ImageDraw
+from PIL import Image
 
-st.set_page_config(
-    page_title="Meteo Sicilia Formatter", page_icon="🌤️", layout="centered"
-)
 
-st.title("🌤️ Meteo Sicilia Formatter")
+# ============================================================
+# CONFIGURAZIONE
+# ============================================================
 
-uploaded_file = st.file_uploader(
-    "📁 1. Carica l'immagine dal telefono:", type=["png", "jpg", "jpeg"]
-)
-st.markdown(
-    "<p style='text-align: center; color: gray; margin: 0;'>— OPPURE —</p>",
-    unsafe_allow_html=True,
-)
-url = st.text_input(
-    "🔗 2. Incolla l'URL dell'immagine:", placeholder="https://..."
+OUTPUT_WIDTH = 1080
+OUTPUT_HEIGHT = 1350
+
+DEFAULT_URL = (
+    "https://widget.weathersicily.it/assets/cover/revisions/"
+    "midnight-20260818T005707-1317182/sicilia-social-icone.png"
+    "?v=1787007429"
 )
 
 
-def process_meteo_image(img):
-    w, h = img.size
+# ============================================================
+# SCARICA IMMAGINE
+# ============================================================
 
-    # Colore di sfondo blu scuro originale (#081A2C)
-    bg_color = (8, 26, 44, 255)
-    canvas = Image.new("RGBA", (1080, 1350), bg_color)
+def download_image(url):
 
-    # 1. HEADER SUPERIORE (Titolo + Logo principale)
-    header = img.crop((0, 0, w, int(h * 0.13)))
-    h_ratio = 1080 / header.width
-    header_resized = header.resize(
-        (1080, int(header.height * h_ratio)), Image.Resampling.LANCZOS
-    )
-    canvas.paste(header_resized, (0, 0))
+    parsed = urlparse(url.strip())
 
-    # 2. MAPPA CENTRALE (Taglio della cornice esterna per ingrandirla)
-    map_box = img.crop(
-        (int(w * 0.04), int(h * 0.132), int(w * 0.96), int(h * 0.61))
-    )
-    mw, mh = map_box.size
-
-    draw = ImageDraw.Draw(map_box)
-
-    # Rimozione pulita box duplicato "SICILIA DOMANI/OGGI..." (in alto a sinistra)
-    draw.rectangle([0, 0, int(mw * 0.25), int(mh * 0.13)], fill=bg_color)
-
-    # Rimozione pulita logo duplicato "WS" (in alto a destra)
-    draw.rectangle([int(mw * 0.85), 0, mw, int(mh * 0.08)], fill=bg_color)
-
-    # Ingrandimento mappa
-    m_ratio = 1040 / mw
-    map_resized = map_box.resize(
-        (1040, int(mh * m_ratio)), Image.Resampling.LANCZOS
-    )
-    canvas.paste(map_resized, (20, 175))
-
-    # 3. GRIGLIA TEMPERATURE PER PROVINCIA
-    temp_grid = img.crop((0, int(h * 0.615), w, int(h * 0.96)))
-    g_ratio = 1080 / temp_grid.width
-    grid_resized = temp_grid.resize(
-        (1080, int(temp_grid.height * g_ratio)), Image.Resampling.LANCZOS
-    )
-    canvas.paste(grid_resized, (0, 815))
-
-    # 4. FOOTER (Mantiene solo weathersicily.it centrato)
-    footer = img.crop((0, int(h * 0.96), w, h))
-    f_ratio = 1080 / footer.width
-    footer_resized = footer.resize(
-        (1080, int(footer.height * f_ratio)), Image.Resampling.LANCZOS
-    )
-
-    f_draw = ImageDraw.Draw(footer_resized)
-    f_draw.rectangle(
-        [int(1080 * 0.55), 0, 1080, footer_resized.height], fill=bg_color
-    )
-    canvas.paste(footer_resized, (0, 1300))
-
-    return canvas
-
-
-if st.button("GENERA", type="primary", use_container_width=True):
-    raw_img = None
-    if uploaded_file is not None:
-        try:
-            raw_img = Image.open(uploaded_file).convert("RGBA")
-        except Exception as e:
-            st.error(f"Errore nella lettura del file: {e}")
-    elif url.strip():
-        with st.spinner("Scaricamento immagine da URL in corso..."):
-            try:
-                headers = {"User-Agent": "Mozilla/5.0"}
-                res = requests.get(url.strip(), headers=headers, timeout=12)
-                if res.status_code == 200:
-                    raw_img = Image.open(io.BytesIO(res.content)).convert(
-                        "RGBA"
-                    )
-                else:
-                    st.error(
-                        f"Errore di scaricamento dal link: {res.status_code}"
-                    )
-            except Exception as e:
-                st.error(f"Errore durante il download: {e}")
-    else:
-        st.warning(
-            "Per favore, carica un'immagine dal telefono oppure inserisci un URL."
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            "Il link deve iniziare con http:// oppure https://"
         )
 
-    if raw_img is not None:
-        with st.spinner("Elaborazione immagine in corso..."):
-            try:
-                final_img = process_meteo_image(raw_img)
-                st.success("Immagine ottimizzata con successo!")
-                st.image(final_img, use_container_width=True)
+    host = (parsed.hostname or "").lower()
 
-                buf = io.BytesIO()
-                final_img.save(buf, format="PNG", quality=100)
-                buf.seek(0)
+    if not (
+        host == "weathersicily.it"
+        or host.endswith(".weathersicily.it")
+    ):
+        raise ValueError(
+            "Per sicurezza questa app accetta solo immagini "
+            "provenienti da weathersicily.it"
+        )
 
-                st.download_button(
-                    label="⬇️ SCARICA PNG",
-                    data=buf,
-                    file_name="meteo_sicilia_formatted.png",
-                    mime="image/png",
-                    use_container_width=True,
+    response = requests.get(
+        url.strip(),
+        timeout=30,
+        headers={
+            "User-Agent": "MeteoSiciliaFormatter/1.0"
+        },
+    )
+
+    response.raise_for_status()
+
+    return Image.open(
+        io.BytesIO(response.content)
+    ).convert("RGB")
+
+
+# ============================================================
+# ELIMINA I DUPLICATI
+# ============================================================
+
+def remove_duplicates(image):
+
+    """
+    Rimuove dalla parte della mappa:
+    - la seconda data/giorno
+    - il secondo logo
+
+    Il logo principale nell'intestazione rimane.
+    """
+
+    arr = np.array(image)
+
+    mask = np.zeros(
+        arr.shape[:2],
+        dtype=np.uint8
+    )
+
+    # Seconda scritta del giorno/data
+    mask[5:75, 10:240] = 255
+
+    # Secondo logo
+    mask[5:65, 880:970] = 255
+
+    image_bgr = cv2.cvtColor(
+        arr,
+        cv2.COLOR_RGB2BGR
+    )
+
+    repaired = cv2.inpaint(
+        image_bgr,
+        mask,
+        5,
+        cv2.INPAINT_TELEA
+    )
+
+    return Image.fromarray(
+        cv2.cvtColor(
+            repaired,
+            cv2.COLOR_BGR2RGB
+        )
+    )
+
+
+# ============================================================
+# CREA LA NUOVA GRAFICA
+# ============================================================
+
+def format_weather_image(source):
+
+    # Uniformiamo l'immagine alla dimensione originale
+    source = source.resize(
+        (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+        Image.Resampling.LANCZOS
+    )
+
+    # --------------------------------------------------------
+    # HEADER
+    # --------------------------------------------------------
+
+    header = source.crop(
+        (0, 0, 1080, 165)
+    )
+
+    # --------------------------------------------------------
+    # MAPPA
+    # --------------------------------------------------------
+
+    map_source = source.crop(
+        (46, 190, 1034, 790)
+    )
+
+    map_source = remove_duplicates(
+        map_source
+    )
+
+    map_panel = map_source.resize(
+        (1080, 640),
+        Image.Resampling.LANCZOS
+    )
+
+    # --------------------------------------------------------
+    # TEMPERATURE
+    # --------------------------------------------------------
+
+    temperature_panel = source.crop(
+        (0, 835, 1080, 1270)
+    )
+
+    temperature_panel = temperature_panel.resize(
+        (1080, 500),
+        Image.Resampling.LANCZOS
+    )
+
+    # --------------------------------------------------------
+    # FOOTER
+    # --------------------------------------------------------
+
+    footer = source.crop(
+        (0, 1305, 1080, 1350)
+    )
+
+    # --------------------------------------------------------
+    # COMPOSIZIONE
+    # --------------------------------------------------------
+
+    output = Image.new(
+        "RGB",
+        (1080, 1350),
+        (7, 27, 47)
+    )
+
+    output.paste(
+        header,
+        (0, 0)
+    )
+
+    output.paste(
+        map_panel,
+        (0, 165)
+    )
+
+    output.paste(
+        temperature_panel,
+        (0, 805)
+    )
+
+    output.paste(
+        footer,
+        (0, 1305)
+    )
+
+    return output
+
+
+# ============================================================
+# INTERFACCIA
+# ============================================================
+
+st.set_page_config(
+    page_title="Meteo Sicilia",
+    page_icon="🌤️",
+    layout="centered"
+)
+
+
+st.title("🌤️ Meteo Sicilia")
+
+st.write(
+    "Incolla il link dell'immagine giornaliera "
+    "Weather Sicily e premi GENERA."
+)
+
+
+url = st.text_input(
+    "🔗 Link immagine",
+    value=DEFAULT_URL
+)
+
+
+uploaded_file = st.file_uploader(
+    "Oppure carica direttamente l'immagine",
+    type=[
+        "png",
+        "jpg",
+        "jpeg"
+    ]
+)
+
+
+generate = st.button(
+    "✨ GENERA IMMAGINE",
+    use_container_width=True
+)
+
+
+# ============================================================
+# ELABORAZIONE
+# ============================================================
+
+if generate:
+
+    try:
+
+        with st.spinner(
+            "Sto preparando la grafica..."
+        ):
+
+            # Se viene caricata una foto,
+            # utilizziamo quella.
+            if uploaded_file is not None:
+
+                original = Image.open(
+                    uploaded_file
+                ).convert("RGB")
+
+            else:
+
+                original = download_image(
+                    url
                 )
-            except Exception as e:
-                st.error(f"Errore durante l'elaborazione grafica: {e}")
+
+            result = format_weather_image(
+                original
+            )
+
+
+        st.success(
+            "Immagine pronta!"
+        )
+
+
+        st.image(
+            result,
+            caption="Anteprima",
+            use_container_width=True
+        )
+
+
+        # ----------------------------------------------------
+        # DOWNLOAD PNG
+        # ----------------------------------------------------
+
+        buffer = io.BytesIO()
+
+        result.save(
+            buffer,
+            format="PNG",
+            optimize=True
+        )
+
+
+        st.download_button(
+            label="⬇️ SCARICA PNG",
+            data=buffer.getvalue(),
+            file_name="meteo_sicilia.png",
+            mime="image/png",
+            use_container_width=True
+        )
+
+
+    except Exception as error:
+
+        st.error(
+            "Si è verificato un errore:"
+        )
+
+        st.code(
+            str(error)
+        )
+
+
+# ============================================================
+# INFO
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "Meteo Sicilia Formatter • "
+    "Formato 1080 × 1350 px"
+)
