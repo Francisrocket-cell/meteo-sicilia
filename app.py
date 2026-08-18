@@ -137,8 +137,138 @@ def clean_map(map_img):
 
 
 # ============================================================
-# CREA LA VERSIONE FINALE
+# INGRANDISCE UNA ZONA DELL'IMMAGINE
 # ============================================================
+
+def zoom_region(
+    image,
+    box,
+    scale=1.30,
+    paste_position=None
+):
+    """
+    Ingrandisce una zona dell'immagine e la riposiziona.
+    box = (x1, y1, x2, y2)
+    """
+
+    x1, y1, x2, y2 = box
+
+    crop = image.crop(
+        (x1, y1, x2, y2)
+    )
+
+    new_w = int(crop.width * scale)
+    new_h = int(crop.height * scale)
+
+    crop = crop.resize(
+        (new_w, new_h),
+        Image.Resampling.LANCZOS
+    )
+
+    if paste_position is None:
+        paste_position = (x1, y1)
+
+    image.paste(
+        crop,
+        paste_position
+    )
+
+    return image
+
+
+# ============================================================
+# INGRANDISCE LE DIDASCALIE DELLA MAPPA
+# ============================================================
+
+def enlarge_map_labels(map_image):
+
+    result = map_image.copy()
+
+    # --------------------------------------------------------
+    # IMPORTANTE
+    #
+    # Queste coordinate sono riferite alla mappa già
+    # ingrandita 1080 x 670.
+    # --------------------------------------------------------
+
+    # --------------------------------------------------------
+    # MARE TIRRENO OCCIDENTALE
+    # --------------------------------------------------------
+
+    result = zoom_region(
+        result,
+        (270, 35, 465, 105),
+        scale=1.32,
+        paste_position=(255, 25)
+    )
+
+    # --------------------------------------------------------
+    # MARE TIRRENO ORIENTALE
+    # --------------------------------------------------------
+
+    result = zoom_region(
+        result,
+        (500, 100, 690, 170),
+        scale=1.32,
+        paste_position=(490, 90)
+    )
+
+    # --------------------------------------------------------
+    # CANALE DI SICILIA OCCIDENTALE
+    # --------------------------------------------------------
+
+    result = zoom_region(
+        result,
+        (25, 325, 175, 405),
+        scale=1.32,
+        paste_position=(15, 315)
+    )
+
+    # --------------------------------------------------------
+    # MAR IONIO SETTENTRIONALE
+    # --------------------------------------------------------
+
+    result = zoom_region(
+        result,
+        (875, 245, 1075, 330),
+        scale=1.32,
+        paste_position=(865, 235)
+    )
+
+    # --------------------------------------------------------
+    # MAR IONIO MERIDIONALE
+    # --------------------------------------------------------
+
+    result = zoom_region(
+        result,
+        (875, 425, 1075, 505),
+        scale=1.32,
+        paste_position=(865, 415)
+    )
+
+    # --------------------------------------------------------
+    # CANALE DI SICILIA MERIDIONALE
+    # --------------------------------------------------------
+
+    result = zoom_region(
+        result,
+        (390, 585, 570, 655),
+        scale=1.32,
+        paste_position=(380, 575)
+    )
+
+    # --------------------------------------------------------
+    # RIQUADRO PELAGIE
+    # --------------------------------------------------------
+
+    result = zoom_region(
+        result,
+        (120, 575, 270, 650),
+        scale=1.38,
+        paste_position=(105, 565)
+    )
+
+    return result
 
 def create_final_image(original):
 
