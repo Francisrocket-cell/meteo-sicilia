@@ -1,61 +1,85 @@
 import io
 import requests
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageDraw
 
-st.set_page_config(page_title="Meteo Sicilia Formatter", page_icon="🌤️", layout="centered")
+st.set_page_config(
+    page_title="Meteo Sicilia Formatter", page_icon="🌤️", layout="centered"
+)
 
 st.title("🌤️ Meteo Sicilia Formatter")
 
-uploaded_file = st.file_uploader("📁 1. Carica l'immagine dal telefono:", type=["png", "jpg", "jpeg"])
-st.markdown("<p style='text-align: center; color: gray; margin: 0;'>— OPPURE —</p>", unsafe_allow_html=True)
-url = st.text_input("🔗 2. Incolla l'URL dell'immagine:", placeholder="https://...")
+uploaded_file = st.file_uploader(
+    "📁 1. Carica l'immagine dal telefono:", type=["png", "jpg", "jpeg"]
+)
+st.markdown(
+    "<p style='text-align: center; color: gray; margin: 0;'>— OPPURE —</p>",
+    unsafe_allow_html=True,
+)
+url = st.text_input(
+    "🔗 2. Incolla l'URL dell'immagine:", placeholder="https://..."
+)
+
 
 def process_meteo_image(img):
     w, h = img.size
-    bg_color = (8, 26, 44, 255) # Sfondo blu scuro standard
+
+    # Colore di sfondo blu scuro originale (#081A2C)
+    bg_color = (8, 26, 44, 255)
     canvas = Image.new("RGBA", (1080, 1350), bg_color)
-    
-    # 1. HEADER SUPERIORE (Titolo principale + Logo WS grande)
+
+    # 1. HEADER SUPERIORE (Titolo + Logo principale)
     header = img.crop((0, 0, w, int(h * 0.13)))
-    header_resized = header.resize((1080, int(header.height * (1080 / header.width))), Image.Resampling.LANCZOS)
+    h_ratio = 1080 / header.width
+    header_resized = header.resize(
+        (1080, int(header.height * h_ratio)), Image.Resampling.LANCZOS
+    )
     canvas.paste(header_resized, (0, 0))
 
-    # 2. MAPPA CENTRALE (Senza bordi esterni superflui)
-    map_box = img.crop((int(w * 0.035), int(h * 0.135), int(w * 0.965), int(h * 0.61)))
+    # 2. MAPPA CENTRALE (Taglio della cornice esterna per ingrandirla)
+    map_box = img.crop(
+        (int(w * 0.04), int(h * 0.132), int(w * 0.96), int(h * 0.61))
+    )
     mw, mh = map_box.size
-    
-    # RIMOZIONE PULITA DEGLI ELEMENTI INTERNI DUPLICATI (Senza rettangoli grezzi)
-    # Prendiamo un pezzetto di mare pulito vicino e lo incolliamo sopra il box in alto a sinistra
-    clean_sea_sample = map_box.crop((int(mw * 0.35), int(mh * 0.20), int(mw * 0.45), int(mh * 0.30)))
-    clean_sea_sample = clean_sea_sample.resize((int(mw * 0.27), int(mh * 0.14)), Image.Resampling.LANCZOS)
-    map_box.paste(clean_sea_sample, (int(mw * 0.015), int(mh * 0.005)))
 
-    # Facciamo la stessa cosa per ripulire il logo piccolo in alto a destra nella mappa
-    clean_sky_sample = map_box.crop((int(mw * 0.75), int(mh * 0.05), int(mw * 0.85), int(mh * 0.15)))
-    clean_sky_sample = clean_sky_sample.resize((int(mw * 0.11), int(mh * 0.08)), Image.Resampling.LANCZOS)
-    map_box.paste(clean_sky_sample, (int(mw * 0.88), int(mh * 0.01)))
+    draw = ImageDraw.Draw(map_box)
 
-    # Ingrandimento della mappa pulita
-    map_resized = map_box.resize((1020, int(map_box.height * (1020 / map_box.width))), Image.Resampling.LANCZOS)
-    canvas.paste(map_resized, (30, 175))
+    # Rimozione pulita box duplicato "SICILIA DOMANI/OGGI..." (in alto a sinistra)
+    draw.rectangle([0, 0, int(mw * 0.25), int(mh * 0.13)], fill=bg_color)
+
+    # Rimozione pulita logo duplicato "WS" (in alto a destra)
+    draw.rectangle([int(mw * 0.85), 0, mw, int(mh * 0.08)], fill=bg_color)
+
+    # Ingrandimento mappa
+    m_ratio = 1040 / mw
+    map_resized = map_box.resize(
+        (1040, int(mh * m_ratio)), Image.Resampling.LANCZOS
+    )
+    canvas.paste(map_resized, (20, 175))
 
     # 3. GRIGLIA TEMPERATURE PER PROVINCIA
-    temp_grid = img.crop((0, int(h * 0.62), w, int(h * 0.96)))
-    grid_resized = temp_grid.resize((1080, int(temp_grid.height * (1080 / temp_grid.width))), Image.Resampling.LANCZOS)
-    canvas.paste(grid_resized, (0, 810))
+    temp_grid = img.crop((0, int(h * 0.615), w, int(h * 0.96)))
+    g_ratio = 1080 / temp_grid.width
+    grid_resized = temp_grid.resize(
+        (1080, int(temp_grid.height * g_ratio)), Image.Resampling.LANCZOS
+    )
+    canvas.paste(grid_resized, (0, 815))
 
-    # 4. FOOTER (Sito web centrato pulito)
+    # 4. FOOTER (Mantiene solo weathersicily.it centrato)
     footer = img.crop((0, int(h * 0.96), w, h))
-    footer_resized = footer.resize((1080, int(footer.height * (1080 / footer.width))), Image.Resampling.LANCZOS)
-    
-    # Copriamo eventuali scritte superflue a destra nel footer usando il colore di sfondo
-    from PIL import ImageDraw
+    f_ratio = 1080 / footer.width
+    footer_resized = footer.resize(
+        (1080, int(footer.height * f_ratio)), Image.Resampling.LANCZOS
+    )
+
     f_draw = ImageDraw.Draw(footer_resized)
-    f_draw.rectangle([int(1080 * 0.55), 0, 1080, footer_resized.height], fill=bg_color)
+    f_draw.rectangle(
+        [int(1080 * 0.55), 0, 1080, footer_resized.height], fill=bg_color
+    )
     canvas.paste(footer_resized, (0, 1300))
 
     return canvas
+
 
 if st.button("GENERA", type="primary", use_container_width=True):
     raw_img = None
@@ -70,13 +94,19 @@ if st.button("GENERA", type="primary", use_container_width=True):
                 headers = {"User-Agent": "Mozilla/5.0"}
                 res = requests.get(url.strip(), headers=headers, timeout=12)
                 if res.status_code == 200:
-                    raw_img = Image.open(io.BytesIO(res.content)).convert("RGBA")
+                    raw_img = Image.open(io.BytesIO(res.content)).convert(
+                        "RGBA"
+                    )
                 else:
-                    st.error(f"Errore di scaricamento dal link: {res.status_code}")
+                    st.error(
+                        f"Errore di scaricamento dal link: {res.status_code}"
+                    )
             except Exception as e:
                 st.error(f"Errore durante il download: {e}")
     else:
-        st.warning("Per favore, carica un'immagine dal telefono oppure inserisci un URL.")
+        st.warning(
+            "Per favore, carica un'immagine dal telefono oppure inserisci un URL."
+        )
 
     if raw_img is not None:
         with st.spinner("Elaborazione immagine in corso..."):
@@ -94,7 +124,7 @@ if st.button("GENERA", type="primary", use_container_width=True):
                     data=buf,
                     file_name="meteo_sicilia_formatted.png",
                     mime="image/png",
-                    use_container_width=True
+                    use_container_width=True,
                 )
             except Exception as e:
                 st.error(f"Errore durante l'elaborazione grafica: {e}")
