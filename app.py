@@ -1,7 +1,7 @@
 import io
 import requests
 import streamlit as st
-from PIL import Image, ImageDraw
+from PIL import Image
 
 st.set_page_config(page_title="Meteo Sicilia Formatter", page_icon="🌤️", layout="centered")
 
@@ -13,31 +13,46 @@ url = st.text_input("🔗 2. Incolla l'URL dell'immagine:", placeholder="https:/
 
 def process_meteo_image(img):
     w, h = img.size
-    bg_color = (8, 26, 44, 255)
+    bg_color = (8, 26, 44, 255) # Sfondo blu scuro standard
     canvas = Image.new("RGBA", (1080, 1350), bg_color)
     
+    # 1. HEADER SUPERIORE (Titolo principale + Logo WS grande)
     header = img.crop((0, 0, w, int(h * 0.13)))
     header_resized = header.resize((1080, int(header.height * (1080 / header.width))), Image.Resampling.LANCZOS)
     canvas.paste(header_resized, (0, 0))
 
+    # 2. MAPPA CENTRALE (Senza bordi esterni superflui)
     map_box = img.crop((int(w * 0.035), int(h * 0.135), int(w * 0.965), int(h * 0.61)))
-    draw = ImageDraw.Draw(map_box)
     mw, mh = map_box.size
     
-    draw.rectangle([int(mw * 0.02), int(mh * 0.01), int(mw * 0.28), int(mh * 0.14)], fill=bg_color)
-    draw.rectangle([int(mw * 0.88), int(mh * 0.01), int(mw * 0.98), int(mh * 0.08)], fill=bg_color)
+    # RIMOZIONE PULITA DEGLI ELEMENTI INTERNI DUPLICATI (Senza rettangoli grezzi)
+    # Prendiamo un pezzetto di mare pulito vicino e lo incolliamo sopra il box in alto a sinistra
+    clean_sea_sample = map_box.crop((int(mw * 0.35), int(mh * 0.20), int(mw * 0.45), int(mh * 0.30)))
+    clean_sea_sample = clean_sea_sample.resize((int(mw * 0.27), int(mh * 0.14)), Image.Resampling.LANCZOS)
+    map_box.paste(clean_sea_sample, (int(mw * 0.015), int(mh * 0.005)))
 
+    # Facciamo la stessa cosa per ripulire il logo piccolo in alto a destra nella mappa
+    clean_sky_sample = map_box.crop((int(mw * 0.75), int(mh * 0.05), int(mw * 0.85), int(mh * 0.15)))
+    clean_sky_sample = clean_sky_sample.resize((int(mw * 0.11), int(mh * 0.08)), Image.Resampling.LANCZOS)
+    map_box.paste(clean_sky_sample, (int(mw * 0.88), int(mh * 0.01)))
+
+    # Ingrandimento della mappa pulita
     map_resized = map_box.resize((1020, int(map_box.height * (1020 / map_box.width))), Image.Resampling.LANCZOS)
     canvas.paste(map_resized, (30, 175))
 
+    # 3. GRIGLIA TEMPERATURE PER PROVINCIA
     temp_grid = img.crop((0, int(h * 0.62), w, int(h * 0.96)))
     grid_resized = temp_grid.resize((1080, int(temp_grid.height * (1080 / temp_grid.width))), Image.Resampling.LANCZOS)
     canvas.paste(grid_resized, (0, 810))
 
+    # 4. FOOTER (Sito web centrato pulito)
     footer = img.crop((0, int(h * 0.96), w, h))
     footer_resized = footer.resize((1080, int(footer.height * (1080 / footer.width))), Image.Resampling.LANCZOS)
+    
+    # Copriamo eventuali scritte superflue a destra nel footer usando il colore di sfondo
+    from PIL import ImageDraw
     f_draw = ImageDraw.Draw(footer_resized)
-    f_draw.rectangle([int(1080 * 0.60), 0, 1080, footer_resized.height], fill=bg_color)
+    f_draw.rectangle([int(1080 * 0.55), 0, 1080, footer_resized.height], fill=bg_color)
     canvas.paste(footer_resized, (0, 1300))
 
     return canvas
