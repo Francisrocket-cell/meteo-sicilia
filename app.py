@@ -9,11 +9,10 @@ from PIL import Image
 
 
 # ============================================================
-# IMPOSTAZIONI
+# CONFIGURAZIONE
 # ============================================================
 
-FINAL_W = 1080
-FINAL_H = 1350
+OUTPUT_SIZE = (1080, 1350)
 
 DEFAULT_URL = (
     "https://widget.weathersicily.it/assets/cover/revisions/"
@@ -23,17 +22,17 @@ DEFAULT_URL = (
 
 
 # ============================================================
-# SCARICA L'IMMAGINE DAL LINK
+# DOWNLOAD IMMAGINE
 # ============================================================
 
-def download_image(url):
+def download_image(url: str) -> Image.Image:
 
-    url = url.strip()
-
-    parsed = urlparse(url)
+    parsed = urlparse(url.strip())
 
     if parsed.scheme not in ("http", "https"):
-        raise ValueError("Inserisci un URL valido.")
+        raise ValueError(
+            "Il link deve iniziare con http:// o https://."
+        )
 
     host = (parsed.hostname or "").lower()
 
@@ -42,14 +41,15 @@ def download_image(url):
         or host.endswith(".weathersicily.it")
     ):
         raise ValueError(
-            "Per sicurezza il link deve essere di Weather Sicily."
+            "Per sicurezza questa versione accetta solo "
+            "immagini provenienti da weathersicily.it."
         )
 
     response = requests.get(
-        url,
+        url.strip(),
         timeout=30,
         headers={
-            "User-Agent": "Mozilla/5.0"
+            "User-Agent": "MeteoSiciliaFormatter/1.0"
         }
     )
 
@@ -61,95 +61,88 @@ def download_image(url):
 
 
 # ============================================================
-# PORTA L'IMMAGINE A 1080x1350 SENZA DISTORCERLA
+# NORMALIZZA IMMAGINE
 # ============================================================
 
-def normalize_image(image):
-
-    if image.size == (1080, 1350):
-        return image.copy()
+def normalize_image(image: Image.Image) -> Image.Image:
 
     return image.resize(
-        (1080, 1350),
+        OUTPUT_SIZE,
         Image.Resampling.LANCZOS
     )
 
 
 # ============================================================
-# RIMUOVE LE PARTI DUPLICATE DALLA MAPPA
+# PULIZIA MAPPA
 # ============================================================
 
-def clean_map(map_img):
+def clean_map(map_image: Image.Image) -> Image.Image:
 
-    img = np.array(map_img)
-
-    h, w = img.shape[:2]
+    arr = np.array(map_image)
 
     mask = np.zeros(
-        (h, w),
+        arr.shape[:2],
         dtype=np.uint8
     )
 
+    h, w = arr.shape[:2]
+
     # --------------------------------------------------------
-    # RIQUADRO "SICILIA / DOMANI / DATA"
-    #
-    # Nella mappa originale si trova in alto a sinistra.
+    # ELIMINA RIQUADRO INTERNO:
+    # SICILIA / DOMANI / GIORNO
     # --------------------------------------------------------
 
     mask[
-        8:min(78, h),
-        8:min(245, w)
+        5:min(80, h),
+        5:min(250, w)
     ] = 255
 
     # --------------------------------------------------------
-    # SECONDO LOGO WS
-    #
-    # Si trova in alto a destra della mappa.
+    # ELIMINA SECONDO LOGO WS
     # --------------------------------------------------------
+
+    x1 = max(0, w - 120)
+    x2 = w - 5
 
     mask[
-        5:min(72, h),
-        max(875, w - 115):min(988, w)
+        5:min(70, h),
+        x1:x2
     ] = 255
 
     # --------------------------------------------------------
-    # INPAINT
+    # INPAINTING
     # --------------------------------------------------------
 
     bgr = cv2.cvtColor(
-        img,
+        arr,
         cv2.COLOR_RGB2BGR
     )
 
     repaired = cv2.inpaint(
         bgr,
         mask,
-        9,
+        5,
         cv2.INPAINT_TELEA
     )
 
-    rgb = cv2.cvtColor(
-        repaired,
-        cv2.COLOR_BGR2RGB
+    return Image.fromarray(
+        cv2.cvtColor(
+            repaired,
+            cv2.COLOR_BGR2RGB
+        )
     )
-
-    return Image.fromarray(rgb)
 
 
 # ============================================================
-# INGRANDISCE UNA ZONA DELL'IMMAGINE
+# ZOOM DI UNA ZONA
 # ============================================================
 
 def zoom_region(
-    image,
+    image: Image.Image,
     box,
     scale=1.30,
     paste_position=None
 ):
-    """
-    Ingrandisce una zona dell'immagine e la riposiziona.
-    box = (x1, y1, x2, y2)
-    """
 
     x1, y1, x2, y2 = box
 
@@ -157,11 +150,16 @@ def zoom_region(
         (x1, y1, x2, y2)
     )
 
-    new_w = int(crop.width * scale)
-    new_h = int(crop.height * scale)
+    new_width = int(
+        crop.width * scale
+    )
+
+    new_height = int(
+        crop.height * scale
+    )
 
     crop = crop.resize(
-        (new_w, new_h),
+        (new_width, new_height),
         Image.Resampling.LANCZOS
     )
 
@@ -177,19 +175,12 @@ def zoom_region(
 
 
 # ============================================================
-# INGRANDISCE LE DIDASCALIE DELLA MAPPA
+# INGRANDISCE LE INFORMAZIONI MARINE
 # ============================================================
 
 def enlarge_map_labels(map_image):
 
     result = map_image.copy()
-
-    # --------------------------------------------------------
-    # IMPORTANTE
-    #
-    # Queste coordinate sono riferite alla mappa già
-    # ingrandita 1080 x 670.
-    # --------------------------------------------------------
 
     # --------------------------------------------------------
     # MARE TIRRENO OCCIDENTALE
@@ -270,20 +261,19 @@ def enlarge_map_labels(map_image):
 
     return result
 
+
+# ============================================================
+# CREA IMMAGINE FINALE
+# ============================================================
+
 def create_final_image(original):
 
-    source = normalize_image(original)
+    source = normalize_image(
+        original
+    )
 
     # ========================================================
     # HEADER
-    #
-    # Manteniamo l'intestazione originale.
-    #
-    # Qui rimangono:
-    # PREVISIONI SICILIA
-    # DOMANI
-    # Giorno/data
-    # UN SOLO LOGO WS
     # ========================================================
 
     header = source.crop(
@@ -292,33 +282,31 @@ def create_final_image(original):
 
     # ========================================================
     # MAPPA
-    #
-    # Questa è la parte che deve diventare GRANDE.
-    #
-    # Prendiamo solo la mappa interna, eliminando:
-    # - bordo esterno
-    # - scheda giorno/data
-    # - secondo logo
     # ========================================================
 
     map_original = source.crop(
         (46, 190, 1034, 790)
     )
 
+    # Elimina doppio logo e doppia data
     map_clean = clean_map(
         map_original
     )
 
-    # La mappa occupa tutta la larghezza
+    # Ingrandimento generale della mappa
     map_final = map_clean.resize(
         (1080, 670),
         Image.Resampling.LANCZOS
     )
 
+    # Ingrandimento selettivo
+    # delle informazioni marine
+    map_final = enlarge_map_labels(
+        map_final
+    )
+
     # ========================================================
     # TEMPERATURE
-    #
-    # Prendiamo la sezione originale e la ingrandiamo.
     # ========================================================
 
     temperature_original = source.crop(
@@ -331,53 +319,38 @@ def create_final_image(original):
     )
 
     # ========================================================
-    # CANVAS
+    # CANVAS FINALE
     # ========================================================
 
     result = Image.new(
         "RGB",
-        (FINAL_W, FINAL_H),
+        OUTPUT_SIZE,
         (7, 26, 49)
     )
 
-    # --------------------------------------------------------
-    # HEADER
-    # --------------------------------------------------------
-
+    # Header
     result.paste(
         header,
         (0, 0)
     )
 
-    # --------------------------------------------------------
-    # MAPPA
-    # --------------------------------------------------------
-
+    # Mappa
     result.paste(
         map_final,
         (0, 165)
     )
 
-    # --------------------------------------------------------
-    # TEMPERATURE
-    # --------------------------------------------------------
-
+    # Temperature
     result.paste(
         temperature_final,
         (0, 835)
     )
 
-    # --------------------------------------------------------
-    # NON ricostruiamo il footer:
-    # vogliamo esattamente il layout della tua immagine
-    # di riferimento.
-    # --------------------------------------------------------
-
     return result
 
 
 # ============================================================
-# STREAMLIT
+# WEB APP STREAMLIT
 # ============================================================
 
 st.set_page_config(
@@ -386,31 +359,38 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("🌤️ Meteo Sicilia Formatter")
 
-st.write(
-    "Inserisci il link dell'immagine giornaliera "
-    "oppure carica direttamente il PNG."
+st.title(
+    "🌤️ Meteo Sicilia — Formatter"
+)
+
+st.caption(
+    "Incolla il link dell'immagine Weather Sicily "
+    "e genera automaticamente il formato pulito."
 )
 
 
 # ============================================================
-# INPUT URL
+# LINK
 # ============================================================
 
 url = st.text_input(
-    "🔗 Link immagine Weather Sicily",
+    "🔗 Link dell'immagine",
     value=DEFAULT_URL
 )
 
 
 # ============================================================
-# UPLOAD DA TELEFONO
+# UPLOAD ALTERNATIVO
 # ============================================================
 
 uploaded = st.file_uploader(
-    "📷 Oppure carica un'immagine",
-    type=["png", "jpg", "jpeg"]
+    "📷 Oppure carica direttamente l'immagine",
+    type=[
+        "png",
+        "jpg",
+        "jpeg"
+    ]
 )
 
 
@@ -418,79 +398,91 @@ uploaded = st.file_uploader(
 # PULSANTE
 # ============================================================
 
-if st.button(
+generate = st.button(
     "✨ GENERA IMMAGINE",
     use_container_width=True
-):
+)
+
+
+# ============================================================
+# GENERAZIONE
+# ============================================================
+
+if generate:
 
     try:
 
         with st.spinner(
-            "Sto trasformando l'immagine..."
+            "Elaborazione in corso..."
         ):
 
-            # Se carichi una foto utilizziamo quella.
+            # Se è stata caricata un'immagine,
+            # usa quella.
             if uploaded is not None:
 
-                original = Image.open(
+                source = Image.open(
                     uploaded
                 ).convert("RGB")
 
-            # Altrimenti utilizziamo il link.
             else:
 
-                original = download_image(
+                source = download_image(
                     url
                 )
 
-            # Trasformazione
+            # Crea immagine finale
             result = create_final_image(
-                original
+                source
             )
 
         st.success(
-            "✅ Immagine trasformata!"
+            "✅ Immagine generata correttamente!"
         )
 
-        # Anteprima
+        # ----------------------------------------------------
+        # ANTEPRIMA
+        # ----------------------------------------------------
+
         st.image(
             result,
-            caption="Risultato finale",
+            caption="Anteprima finale",
             use_container_width=True
         )
 
-        # ====================================================
+        # ----------------------------------------------------
         # DOWNLOAD
-        # ====================================================
+        # ----------------------------------------------------
 
         buffer = io.BytesIO()
 
         result.save(
             buffer,
-            format="PNG"
+            format="PNG",
+            optimize=True
         )
 
         st.download_button(
             "⬇️ SCARICA PNG",
             data=buffer.getvalue(),
-            file_name="meteo_sicilia_finale.png",
+            file_name="meteo_sicilia_formattato.png",
             mime="image/png",
             use_container_width=True
         )
 
-    except Exception as e:
+    except Exception as error:
 
         st.error(
-            "❌ Errore durante la trasformazione"
+            f"❌ Errore durante l'elaborazione: {error}"
         )
 
-        st.code(
-            str(e)
-        )
 
+# ============================================================
+# FOOTER
+# ============================================================
 
 st.divider()
 
 st.caption(
-    "Meteo Sicilia Formatter • 1080 × 1350"
+    "Il formatter non usa generazione AI: "
+    "ricompone l'immagine mantenendo i dati originali."
 )
