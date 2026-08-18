@@ -244,11 +244,7 @@ st.set_page_config(
 
 # Titolo
 st.title("🌤️ Meteo Sicilia")
-
-st.write(
-    "Inserisci il link dell'immagine Weather Sicily "
-    "oppure carica direttamente l'immagine."
-)
+st.write("VERSIONE NUOVA — 18 AGOSTO 2026")
 
 
 # ============================================================
